@@ -11,6 +11,7 @@ import io
 import os
 import pathlib
 import stat
+import typing
 
 from elftools.elf.constants import VER_FLAGS
 from elftools.elf.dynamic import DynamicSection
@@ -18,7 +19,7 @@ from elftools.elf.elffile import ELFFile
 from elftools.elf.gnuversions import GNUVerDefSection, GNUVerNeedSection
 
 
-@dataclasses.dataclass(slots=True, frozen=True)
+@dataclasses.dataclass(frozen=True, order=True)
 class SOInfo:
     """Shared object information"""
 
@@ -38,16 +39,19 @@ class SOInfo:
 
 @dataclasses.dataclass
 class ELFInfo:
+    # requires and provides are ordered by occurence in ELF metadata and
+    # can contain duplicate entries. The order can be different than output
+    # of elfdeps.c, but that usually does not matter.
     requires: list[SOInfo]
     provides: list[SOInfo]
-    machine: str | None = None
+    machine: typing.Optional[str] = None
     is_dso: bool = False
     is_exec: bool = False
     got_debug: bool = False
     got_hash: bool = False
     got_gnuhash: bool = False
-    soname: str | None = None
-    interp: str | None = None
+    soname: typing.Optional[str] = None
+    interp: typing.Optional[str] = None
     marker: str = ""
 
 
@@ -79,6 +83,7 @@ class ELFDeps:
         fake_soname: bool = True,
         filter_soname: bool = False,
         require_interp: bool = False,
+        unique: bool = True,
     ) -> None:
         if not isinstance(filename, pathlib.Path):
             raise TypeError(f"filename is not a pathlib.Path: {type(filename)}")
@@ -87,11 +92,13 @@ class ELFDeps:
         self.fake_soname = fake_soname
         self.filter_soname = filter_soname
         self.require_interp = require_interp
+        self.unique = unique
 
         self.info = ELFInfo(
             requires=[],
             provides=[],
         )
+        self._seen: typing.Set[typing.Tuple[bool, SOInfo]] = set()
         with self.filename.open("rb") as f:
             self._process_file(f)
 
@@ -137,23 +144,30 @@ class ELFDeps:
             # direct add
             self.info.requires.append(SOInfo(self.info.interp, version="", marker=""))
 
-    def _add_soinfo(self, provides: bool, soname: str, version: str | None) -> bool:
+    def _add_soinfo(
+        self, provides: bool, soname: str, version: typing.Optional[str]
+    ) -> None:
         if skip_soname(soname, filter_soname=self.filter_soname):
-            return False
+            return
         version = version if version else ""
         marker = self.info.marker or ""
         soinfo = SOInfo(soname, version, marker)
+
+        key = (provides, soinfo)
+        if self.unique and key in self._seen:
+            return
+        self._seen.add(key)
+
         if provides:
             self.info.provides.append(soinfo)
         else:
             self.info.requires.append(soinfo)
-        return True
 
-    def add_provides(self, soname: str, version: str | None = None) -> bool:
-        return self._add_soinfo(True, soname, version)
+    def add_provides(self, soname: str, version: typing.Optional[str] = None) -> None:
+        self._add_soinfo(True, soname, version)
 
-    def add_requires(self, soname: str, version: str | None = None) -> bool:
-        return self._add_soinfo(False, soname, version)
+    def add_requires(self, soname: str, version: typing.Optional[str] = None) -> None:
+        self._add_soinfo(False, soname, version)
 
     @property
     def gen_requires(self) -> bool:
@@ -200,7 +214,7 @@ class ELFDeps:
 
         processVerDef(Elf_Scn *scn, GElf_Shdr *shdr, elfInfo *ei)
         """
-        soname: str | None = None
+        soname: typing.Optional[str] = None
         for verdef, vernaux in sec.iter_versions():
             for aux in vernaux:
                 if not aux.name:
@@ -242,12 +256,13 @@ class ELFDeps:
             elif d_tag == "DT_NEEDED":
                 self.add_requires(tag.needed)
 
-    def process_prog_headers(self, elffile: ELFFile) -> str | None:
+    def process_prog_headers(self, elffile: ELFFile) -> typing.Optional[str]:
         """Get interpreter from PT_INTERP segment
 
         void processProgHeaders(elfInfo *ei, GElf_Ehdr *ehdr)
         """
         for seg in elffile.iter_segments("PT_INTERP"):
-            return seg.get_interp_name()
+            interp: str = seg.get_interp_name()
+            return interp
         else:
             return None

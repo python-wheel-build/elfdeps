@@ -22,7 +22,6 @@ classifiers = [
     "Programming Language :: Python",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -70,7 +69,21 @@ select = [
   "TID", # flake8-tidy-imports
 ]
 ignore = [
+    "UP006",  # not compatible with 3.9 type annotations
 ]
 
 [tool.ruff.lint.isort]
 known-first-party = ["elfdeps"]
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+
+[[tool.mypy.overrides]]
+module = ["elfdeps.*"]
+disallow_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = ["elftools.*"]
+ignore_missing_imports = true
