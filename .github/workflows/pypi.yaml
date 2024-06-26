@@ -1,0 +1,94 @@
+# SPDX-License-Identifier: Apache-2.0
+---
+
+name: Build, test, and upload PyPI package
+
+on:
+    - push
+    - pull_request
+    - release
+
+permissions:
+    contents: read
+
+jobs:
+    build-package:
+        name: Build and check packages
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+
+            - uses: hynek/build-and-inspect-python-package@v2
+
+    # push to Test PyPI on
+    # - a new GitHub release is published
+    # - a PR is merged into main branch
+    publish-test-pypi:
+        name: Publish packages to test.pypi.org
+        # environment: publish-test-pypi
+        if: |
+            github.repository_owner == 'tiran' && (
+                github.event.action == 'published' ||
+                (github.event_name == 'push' && github.ref == 'refs/heads/main')
+            )
+        permissions:
+            contents: read
+            # see https://docs.pypi.org/trusted-publishers/
+            id-token: write
+        runs-on: ubuntu-latest
+        needs: build-package
+
+        steps:
+            - name: Fetch build artifacts
+              uses: actions/download-artifact@v4
+              with:
+                  name: Packages
+                  path: dist
+
+            - name: Upload to Test PyPI
+              uses: pypa/gh-action-pypi-publish@release/v1
+              with:
+                  repository-url: https://test.pypi.org/legacy/
+
+    # push to Production PyPI on
+    # - a new GitHub release is published
+    publish-pypi:
+        name: Publish release to pypi.org
+        # environment: publish-pypi
+        if: |
+            github.repository_owner == 'tiran' && github.event.action == 'published'
+        permissions:
+            # see https://docs.pypi.org/trusted-publishers/
+            id-token: write
+            # allow gh release upload
+            contents: write
+
+        runs-on: ubuntu-latest
+        needs: build-package
+
+        steps:
+            - name: Fetch build artifacts
+              uses: actions/download-artifact@v4
+              with:
+                  name: Packages
+                  path: dist
+
+            - uses: sigstore/gh-action-sigstore-python@v2.1.1
+              with:
+                  inputs: >-
+                      ./dist/*.tar.gz
+                      ./dist/*.whl
+
+            - name: Upload artifacts and signatures to GitHub release
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+              run: >-
+                  gh release upload '${{ github.ref_name }}' dist/* --repo '${{ github.repository }}'
+
+            # PyPI does not accept .sigstore artifacts and
+            # gh-action-pypi-publish has no option to ignore them.
+            - name: Remove sigstore signatures before uploading to PyPI
+              run: rm ./dist/*.sigstore
+
+            - name: Upload to PyPI
+              uses: pypa/gh-action-pypi-publish@release/v1
