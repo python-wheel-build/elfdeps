@@ -3,6 +3,7 @@
 import argparse
 import pathlib
 import pprint
+import typing
 
 from ._elfdeps import ELFDeps
 
@@ -46,9 +47,16 @@ parser.add_argument(
     dest="require_interp",
     help="Include ELF interpreter name",
 )
+parser.add_argument(
+    "--unique",
+    "-u",
+    action="store_true",
+    dest="unique",
+    help="Remove duplicate entries",
+)
 
 
-def main(argv=None):
+def main(argv: typing.Optional[typing.List[str]] = None) -> None:
     args = parser.parse_args(argv)
     e = ELFDeps(
         args.filename,
@@ -56,6 +64,7 @@ def main(argv=None):
         fake_soname=args.fake_soname,
         filter_soname=args.filter_soname,
         require_interp=args.require_interp,
+        unique=args.unique,
     )
     if args.provides:
         for p in e.info.provides:
