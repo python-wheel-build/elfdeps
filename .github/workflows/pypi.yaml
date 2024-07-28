@@ -4,9 +4,17 @@
 name: Build, test, and upload PyPI package
 
 on:
-    - push
-    - pull_request
-    - release
+    push:
+        branches:
+            - main
+        tags:
+            - "v*"
+    pull_request:
+        branches:
+            - main
+    release:
+        types:
+            - published
 
 permissions:
     contents: read

@@ -3,9 +3,14 @@
 import argparse
 import pathlib
 import pprint
+import tarfile
 import typing
+import zipfile
 
-from ._elfdeps import ELFDeps
+from . import _archives, _elfdeps
+
+ZIPEXT = frozenset({".zip", ".whl"})
+TAREXT = frozenset({".tar", ".tar.gz", ".tgz", ".tar.bz2", "tbz2", "tar.xz", "txz"})
 
 parser = argparse.ArgumentParser("elfdeps")
 parser.add_argument("filename", type=pathlib.Path)
@@ -56,24 +61,55 @@ parser.add_argument(
 )
 
 
-def main(argv: typing.Optional[typing.List[str]] = None) -> None:
+def zip_requires(
+    filename: pathlib.Path, settings: _elfdeps.ELFAnalyzeSettings
+) -> typing.Iterable[_elfdeps.ELFInfo]:
+    with zipfile.ZipFile(filename) as zf:
+        for zipinfo in zf.infolist():
+            if zipinfo.filename.endswith(".so"):
+                yield _archives.analyze_zipmember(zf, zipinfo, settings=settings)
+
+
+def tar_requires(
+    filename: pathlib.Path, settings: _elfdeps.ELFAnalyzeSettings
+) -> typing.Iterable[_elfdeps.ELFInfo]:
+    with tarfile.TarFile.open(filename, mode="r:*") as tf:
+        for tarinfo in tf.getmembers():
+            if tarinfo.name.endswith(".so"):
+                yield _archives.analyze_tarmember(tf, tarinfo, settings=settings)
+
+
+def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
-    e = ELFDeps(
-        args.filename,
+    settings = _elfdeps.ELFAnalyzeSettings(
         soname_only=args.soname_only,
         fake_soname=args.fake_soname,
         filter_soname=args.filter_soname,
         require_interp=args.require_interp,
         unique=args.unique,
     )
+    filename: pathlib.Path = args.filename
+    if filename.suffix in ZIPEXT:
+        infos = list(zip_requires(filename, settings=settings))
+    elif filename.suffix in TAREXT:
+        infos = list(tar_requires(filename, settings=settings))
+    else:
+        infos = [_elfdeps.analyze_file(filename, settings=settings)]
     if args.provides:
-        for p in e.info.provides:
+        provides = set()
+        for info in infos:
+            provides.update(info.provides)
+        for p in sorted(provides):
             print(p)
-    if args.requires:
-        for r in e.info.requires:
+    elif args.requires:
+        requires = set()
+        for info in infos:
+            requires.update(info.requires)
+        for r in sorted(requires):
             print(r)
-    if not args.requires and not args.provides:
-        pprint.pprint(e.info)
+    else:
+        for info in infos:
+            pprint.pprint(info)
 
 
 if __name__ == "__main__":

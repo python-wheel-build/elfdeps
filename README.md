@@ -66,3 +66,14 @@ Dependencies resolved.
 Nothing to do.
 Complete!
 ```
+
+## Public API
+
+* dataclass `elfdeps.ELFAnalyzeSettings`
+* exception `elfdeps.ELFError`
+* dataclass `elfdeps.ELFInfo`
+* dataclass `elfdeps.SOInfo`
+* `elfdeps.analyze_elffile(elffile, *, filename, is_exec, settings=None) -> ELFInfo`
+* `elfdeps.analyze_file(filename, *, settings=None) -> ELFInfo`
+* `elfdeps.analyze_tarmember(tfile, tarinfo, *, settings=None) -> ELFInfo`
+* `elfdeps.analyze_zipmember(zfile, zipinfo, *, settings=None) -> ELFInfo`
