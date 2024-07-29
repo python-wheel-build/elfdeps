@@ -28,7 +28,7 @@ classifiers = [
     "Programming Language :: Python :: Implementation :: CPython",
     "Topic :: Utilities",
 ]
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = [
     "pyelftools",
 ]
@@ -54,8 +54,9 @@ line-length = 88
 
 [tool.ruff.lint]
 # Allow fix for all enabled rules (when `--fix`) is provided.
-fixable = ["ALL"]
+fixable = ["ALL", "UP006"]
 unfixable = []
+extend-safe-fixes = ["UP006", "UP007"]
 select = [
   "B",  # flake8-bugbear
   "E",  # pycodestyle
@@ -68,15 +69,12 @@ select = [
   "UP",  # pyupgrade
   "TID", # flake8-tidy-imports
 ]
-ignore = [
-    "UP006",  # not compatible with 3.9 type annotations
-]
 
 [tool.ruff.lint.isort]
 known-first-party = ["elfdeps"]
 
 [tool.mypy]
-python_version = "3.9"
+python_version = "3.10"
 warn_return_any = true
 warn_unused_configs = true
 
