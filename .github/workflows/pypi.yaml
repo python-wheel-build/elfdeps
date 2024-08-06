@@ -35,7 +35,7 @@ jobs:
         name: Publish packages to test.pypi.org
         # environment: publish-test-pypi
         if: |
-            github.repository_owner == 'tiran' && (
+            github.repository_owner == 'python-wheel-build' && (
                 github.event.action == 'published' ||
                 (github.event_name == 'push' && github.ref == 'refs/heads/main')
             )
@@ -64,7 +64,7 @@ jobs:
         name: Publish release to pypi.org
         # environment: publish-pypi
         if: |
-            github.repository_owner == 'tiran' && github.event.action == 'published'
+            github.repository_owner == 'python-wheel-build' && github.event.action == 'published'
         permissions:
             # see https://docs.pypi.org/trusted-publishers/
             id-token: write

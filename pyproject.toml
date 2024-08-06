@@ -39,7 +39,7 @@ test = [
 ]
 
 [project.urls]
-Repository = "https://github.com/tiran/elfdeps"
+Repository = "https://github.com/python-wheel-build/elfdeps"
 
 [project.scripts]
 elfdeps = "elfdeps.__main__:main"
