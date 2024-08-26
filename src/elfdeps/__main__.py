@@ -1,10 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import argparse
+import logging
 import pathlib
 import pprint
+import stat
 import tarfile
-import typing
 import zipfile
 
 from . import _archives, _elfdeps
@@ -14,6 +15,13 @@ TAREXT = (".tar", ".tar.gz", ".tgz", ".tar.bz2", ".tbz2", ".tar.xz", ".txz")
 
 parser = argparse.ArgumentParser("elfdeps")
 parser.add_argument("filename", type=pathlib.Path)
+parser.add_argument(
+    "-d",
+    "--debug",
+    action="store_true",
+    dest="debug",
+    help="debug logging",
+)
 parser.add_argument(
     "-P",
     "--provides",
@@ -61,24 +69,6 @@ parser.add_argument(
 )
 
 
-def zip_requires(
-    filename: pathlib.Path, settings: _elfdeps.ELFAnalyzeSettings
-) -> typing.Iterable[_elfdeps.ELFInfo]:
-    with zipfile.ZipFile(filename) as zf:
-        for zipinfo in zf.infolist():
-            if zipinfo.filename.endswith(".so"):
-                yield _archives.analyze_zipmember(zf, zipinfo, settings=settings)
-
-
-def tar_requires(
-    filename: pathlib.Path, settings: _elfdeps.ELFAnalyzeSettings
-) -> typing.Iterable[_elfdeps.ELFInfo]:
-    with tarfile.TarFile.open(filename, mode="r:*") as tf:
-        for tarinfo in tf.getmembers():
-            if tarinfo.name.endswith(".so"):
-                yield _archives.analyze_tarmember(tf, tarinfo, settings=settings)
-
-
 def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
     settings = _elfdeps.ELFAnalyzeSettings(
@@ -88,13 +78,20 @@ def main(argv: list[str] | None = None) -> None:
         require_interp=args.require_interp,
         unique=args.unique,
     )
+    logging.basicConfig(level=logging.DEBUG if args.debug else logging.INFO)
     filename: pathlib.Path = args.filename
+    st = filename.stat()
     if filename.name.endswith(ZIPEXT):
-        infos = list(zip_requires(filename, settings=settings))
+        with zipfile.ZipFile(filename, mode="r") as zfile:
+            infos = list(_archives.analyze_zipfile(zfile=zfile, settings=settings))
     elif filename.name.endswith(TAREXT):
-        infos = list(tar_requires(filename, settings=settings))
+        with tarfile.TarFile.open(filename, mode="r:*") as tfile:
+            infos = list(_archives.analyze_tarfile(tfile=tfile, settings=settings))
+    elif stat.S_ISDIR(st.st_mode):
+        infos = list(_archives.analyze_dirtree(filename, settings=settings))
     else:
         infos = [_elfdeps.analyze_file(filename, settings=settings)]
+
     if args.provides:
         provides = set()
         for info in infos:
@@ -108,7 +105,7 @@ def main(argv: list[str] | None = None) -> None:
         for r in sorted(requires):
             print(r)
     else:
-        for info in infos:
+        for info in sorted(infos):
             pprint.pprint(info)
 
 

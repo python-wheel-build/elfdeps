@@ -16,6 +16,13 @@ from elftools.elf.dynamic import DynamicSection
 from elftools.elf.elffile import ELFFile
 from elftools.elf.gnuversions import GNUVerDefSection, GNUVerNeedSection
 
+from ._fileinfo import (
+    LD_PREFIX,
+    PYTHON_EXTENSION_SUFFIXES,
+    is_executable_file,
+    is_so_candidate,
+)
+
 
 @dataclasses.dataclass(frozen=True, order=True)
 class SOInfo:
@@ -40,7 +47,7 @@ class SOInfo:
         return str(self)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(order=True)
 class ELFInfo:
     """ELF information
 
@@ -87,6 +94,10 @@ class ELFAnalyzeSettings:
     filter_soname: exclude sonames that don't match 'lib*.so*'
     require_interp: add dependency on ELF interpreter
     unique: remove duplicates
+
+    Flag for collections (analyze tree, tarfile, zipfile)
+
+    ignore_suffix: don't analyzse files with these suffixes
     """
 
     soname_only: bool = False
@@ -94,28 +105,24 @@ class ELFAnalyzeSettings:
     filter_soname: bool = False
     require_interp: bool = False
     unique: bool = True
+    ignore_suffix: set[str] | frozenset[str] = frozenset(
+        {".py", ".md", ".rst", ".sh", ".txt"}
+    )
 
-
-def skip_soname(soname: str, *, filter_soname: bool = True) -> bool:
-    """Rough soname sanity filtering
-
-    soname: base name of shared library
-    """
-    # only basename
-    assert os.pathsep not in soname
-    # filter out empty or all-whitespace names
-    if not soname.strip():
-        return True
-    if filter_soname:
-        # must contain ".so"
-        if ".so" not in soname:
-            return True
-        # dynamic linker
-        if soname.startswith(("ld.", "ld-", "ld64.", "ld64-")):
+    def is_candidate(self, filename: pathlib.Path, st_mode: int | None = None) -> bool:
+        """Check whether a file looks like a potential shared library"""
+        if filename.suffix in self.ignore_suffix:
+            # fast path, ignore Python files, shell scripts, and docs
             return False
-        # must start with "lib"
-        return not soname.startswith("lib")
-    return False
+        if st_mode is not None:
+            if not stat.S_ISREG(st_mode):
+                # always ignore directories, symlinks, and special files
+                return False
+            if is_executable_file(st_mode):
+                # check executable files (may be scripts)
+                return True
+        # check files that look like a shared library or Python extension
+        return is_so_candidate(filename)
 
 
 def analyze_elffile(
@@ -140,8 +147,8 @@ def analyze_file(
     """Analyze a file by path"""
     with filename.open("rb") as f:
         elffile = ELFFile(f)
-        mode = os.fstat(f.fileno()).st_mode
-        is_exec = bool(mode & (stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH))
+        st = os.fstat(f.fileno())
+        is_exec = is_executable_file(st.st_mode)
         return analyze_elffile(
             elffile, filename=filename, is_exec=is_exec, settings=settings
         )
@@ -208,8 +215,35 @@ class _ELFDeps:
             self.info.requires.append(SOInfo(self.info.interp, version="", marker=""))
         return self.info
 
+    def _skip_soname(self, soname: str) -> bool:
+        """Rough soname sanity filtering
+
+        soname: base name of shared library
+
+        static int skipSoname(const char *soname)
+
+        Filters out empty names, Python shared extension, and files that
+        do not look like a library (lib*.so*) or dynamic linker interpreter.
+        """
+        # filter out empty or all-whitespace names
+        if not soname.strip():
+            return True
+        if self.settings.filter_soname:
+            # EXTRA: filter out Python extension modules
+            if PYTHON_EXTENSION_SUFFIXES and soname.endswith(PYTHON_EXTENSION_SUFFIXES):
+                return True
+            # must contain ".so"
+            if ".so" not in soname:
+                return True
+            # include dynamic linker
+            if soname.startswith(LD_PREFIX):
+                return False
+            # must start with "lib"
+            return not soname.startswith("lib")
+        return False
+
     def _add_soinfo(self, provides: bool, soname: str, version: str | None) -> None:
-        if skip_soname(soname, filter_soname=self.settings.filter_soname):
+        if self._skip_soname(soname):
             return
         version = version if version else ""
         marker = self.info.marker or ""
