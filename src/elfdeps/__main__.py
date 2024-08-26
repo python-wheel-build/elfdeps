@@ -9,8 +9,8 @@ import zipfile
 
 from . import _archives, _elfdeps
 
-ZIPEXT = frozenset({".zip", ".whl"})
-TAREXT = frozenset({".tar", ".tar.gz", ".tgz", ".tar.bz2", "tbz2", "tar.xz", "txz"})
+ZIPEXT = (".zip", ".whl")
+TAREXT = (".tar", ".tar.gz", ".tgz", ".tar.bz2", ".tbz2", ".tar.xz", ".txz")
 
 parser = argparse.ArgumentParser("elfdeps")
 parser.add_argument("filename", type=pathlib.Path)
@@ -89,9 +89,9 @@ def main(argv: list[str] | None = None) -> None:
         unique=args.unique,
     )
     filename: pathlib.Path = args.filename
-    if filename.suffix in ZIPEXT:
+    if filename.name.endswith(ZIPEXT):
         infos = list(zip_requires(filename, settings=settings))
-    elif filename.suffix in TAREXT:
+    elif filename.name.endswith(TAREXT):
         infos = list(tar_requires(filename, settings=settings))
     else:
         infos = [_elfdeps.analyze_file(filename, settings=settings)]
