@@ -36,6 +36,7 @@ dependencies = [
 [project.optional-dependencies]
 test = [
     "pytest",
+    "coverage[toml]",
 ]
 
 [project.urls]
@@ -43,6 +44,34 @@ Repository = "https://github.com/python-wheel-build/elfdeps"
 
 [project.scripts]
 elfdeps = "elfdeps.__main__:main"
+
+[tool.coverage.run]
+branch = true
+parallel = true
+relative_files = true
+source = [
+    "elfdeps",
+    "tests/",
+]
+
+[tool.coverage.paths]
+source = [
+   "src/elfdeps",
+   ".tox/py*/**/site-packages/elfdeps",
+]
+tests =[
+   "tests/",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+exclude_lines = [
+    "pragma: no cover",
+    "@abc.abstractmethod",
+    "@typing.overload",
+    "if typing.TYPE_CHECKING",
+]
 
 [tool.setuptools_scm]
 # do not include +gREV local version, required for Test PyPI upload
