@@ -73,7 +73,10 @@ Complete!
 * exception `elfdeps.ELFError`
 * dataclass `elfdeps.ELFInfo`
 * dataclass `elfdeps.SOInfo`
+* `elfdeps.analyze_dirtree(dirname, settings=None) -> Generator[ELFInfo, None, None]`
 * `elfdeps.analyze_elffile(elffile, *, filename, is_exec, settings=None) -> ELFInfo`
 * `elfdeps.analyze_file(filename, *, settings=None) -> ELFInfo`
+* `elfdeps.analyze_tarfile(tfile, *, settings=None) -> Generator[ELFInfo, None, None]`
 * `elfdeps.analyze_tarmember(tfile, tarinfo, *, settings=None) -> ELFInfo`
+* `elfdeps.analyze_zipfile(zfile, *, settings=None) -> Generator[ELFInfo, None, None]`
 * `elfdeps.analyze_zipmember(zfile, zipinfo, *, settings=None) -> ELFInfo`

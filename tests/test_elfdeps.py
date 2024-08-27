@@ -26,6 +26,12 @@ def test_zipmember_python(tmp_path: pathlib.Path):
         assert info.requires == orig_info.requires
         assert info.provides == orig_info.provides
 
+        infos = list(elfdeps.analyze_zipfile(zf))
+        assert len(infos) == 1
+        info = infos[0]
+        assert info.requires == orig_info.requires
+        assert info.provides == orig_info.provides
+
 
 def test_tarmember_python(tmp_path: pathlib.Path):
     orig_info = elfdeps.analyze_file(pathlib.Path(sys.executable))
@@ -37,6 +43,12 @@ def test_tarmember_python(tmp_path: pathlib.Path):
     with tarfile.TarFile.open(tname, mode="r:gz") as tf:
         tarinfo = tf.getmember("python")
         info = elfdeps.analyze_tarmember(tf, tarinfo)
+        assert info.requires == orig_info.requires
+        assert info.provides == orig_info.provides
+
+        infos = list(elfdeps.analyze_tarfile(tf))
+        assert len(infos) == 1
+        info = infos[0]
         assert info.requires == orig_info.requires
         assert info.provides == orig_info.provides
 
