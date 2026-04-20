@@ -4,8 +4,10 @@
 import logging
 import os
 import pathlib
+import shutil
 import stat
 import tarfile
+import tempfile
 import typing
 import zipfile
 
@@ -16,6 +18,32 @@ from ._elfdeps import ELFAnalyzeSettings, ELFInfo, analyze_elffile
 from ._fileinfo import is_executable_file
 
 logger = logging.getLogger(__name__)
+
+# Switch from memory IO to temporary file after 2 MB. The size
+# covers trivial extension. Larger files are written to a temp file.
+_MAX_SPOOL_SIZE = 2 * 1024 * 1024
+
+
+def _spooled_analyze_elffile(
+    f: typing.IO[bytes],
+    filename: pathlib.Path,
+    is_exec: bool,
+    settings: ELFAnalyzeSettings | None = None,
+) -> ELFInfo:
+    """Analyze elffile with spooled temporary file
+
+    elftools performs a lot of small read and seek operations. Seeking
+    in zip and tar files is slow. Use memory IO for small files and
+    temporary file for large files.
+    """
+    with tempfile.SpooledTemporaryFile(max_size=_MAX_SPOOL_SIZE) as t:
+        # copy blocks of _MAX_SPOOL_SIZE
+        shutil.copyfileobj(f, t, length=_MAX_SPOOL_SIZE)
+        t.seek(0)
+        elffile = ELFFile(t)
+        return analyze_elffile(
+            elffile, filename=filename, is_exec=is_exec, settings=settings
+        )
 
 
 def _zipinfo_mode(zipinfo: zipfile.ZipInfo) -> int:
@@ -43,9 +71,8 @@ def analyze_zipmember(
     is_exec = is_executable_file(mode)
     filename = pathlib.Path(zipinfo.filename)
     with zfile.open(zipinfo, mode="r") as f:
-        elffile = ELFFile(f)
-        return analyze_elffile(
-            elffile, filename=filename, is_exec=is_exec, settings=settings
+        return _spooled_analyze_elffile(
+            f, filename=filename, is_exec=is_exec, settings=settings
         )
 
 
@@ -99,9 +126,8 @@ def analyze_tarmember(
     if typing.TYPE_CHECKING:
         assert f is not None
     with f:
-        elffile = ELFFile(f)
-        return analyze_elffile(
-            elffile, filename=filename, is_exec=is_exec, settings=settings
+        return _spooled_analyze_elffile(
+            f, filename=filename, is_exec=is_exec, settings=settings
         )
 
 
