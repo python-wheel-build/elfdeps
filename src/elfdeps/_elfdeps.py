@@ -7,14 +7,21 @@ https://github.com/rpm-software-management/rpm/blob/master/tools/elfdeps.c
 """
 
 import dataclasses
+import enum
 import os
 import pathlib
 import stat
+import typing
 
 from elftools.elf.constants import VER_FLAGS
 from elftools.elf.dynamic import DynamicSection
 from elftools.elf.elffile import ELFFile
-from elftools.elf.gnuversions import GNUVerDefSection, GNUVerNeedSection
+from elftools.elf.gnuversions import (
+    GNUVerDefSection,
+    GNUVerNeedSection,
+    GNUVerSymSection,
+)
+from elftools.elf.sections import SymbolTableSection
 
 from ._fileinfo import (
     LD_PREFIX,
@@ -22,6 +29,65 @@ from ._fileinfo import (
     is_executable_file,
     is_so_candidate,
 )
+
+
+class SymbolBinding(str, enum.Enum):
+    """ELF dynamic symbol binding (STB_*)"""
+
+    GLOBAL = "global"  # Global symbol
+    WEAK = "weak"  # Weak symbol
+
+
+class SymbolType(str, enum.Enum):
+    """ELF dynamic symbol type (STT_*)"""
+
+    NOTYPE = "notype"  # Symbol type is unspecified
+    OBJECT = "object"  # Symbol is a data object
+    FUNC = "func"  # Symbol is a code object
+    COMMON = "common"  # Symbol is a common data object
+    TLS = "tls"  # Symbol is thread-local data object
+    GNU_IFUNC = "ifunc"  # Symbol is indirect code object
+
+
+_SYMBOL_BINDING_MAP: dict[str, SymbolBinding] = {
+    "STB_GLOBAL": SymbolBinding.GLOBAL,
+    "STB_WEAK": SymbolBinding.WEAK,
+}
+
+_SYMBOL_TYPE_MAP: dict[str, SymbolType] = {
+    "STT_NOTYPE": SymbolType.NOTYPE,
+    "STT_OBJECT": SymbolType.OBJECT,
+    "STT_FUNC": SymbolType.FUNC,
+    "STT_COMMON": SymbolType.COMMON,
+    "STT_TLS": SymbolType.TLS,
+    # STT_GNU_IFUNC and STT_LOOS constants have the same int value
+    "STT_GNU_IFUNC": SymbolType.GNU_IFUNC,
+    "STT_LOOS": SymbolType.GNU_IFUNC,
+}
+
+
+@dataclasses.dataclass(frozen=True, slots=True, order=True)
+class SymbolInfo:
+    """Dynamic symbol information
+
+    name: symbol name (e.g. ``printf``)
+    version: version tag (e.g. ``GLIBC_2.34``)
+    binding: symbol binding (global or weak)
+    type: symbol type (func, object, etc.)
+    """
+
+    name: str
+    version: str | None
+    binding: SymbolBinding = dataclasses.field(compare=False)
+    type: SymbolType
+
+    def __str__(self) -> str:
+        if self.version:
+            return f"{self.name}@{self.version}"
+        return self.name
+
+    def __repr__(self) -> str:
+        return str(self)
 
 
 @dataclasses.dataclass(frozen=True, order=True)
@@ -83,6 +149,8 @@ class ELFInfo:
     marker: str = ""
     # useful extras
     runpath: list[str] | None = None
+    exported_symbols: list[SymbolInfo] | None = None
+    imported_symbols: list[SymbolInfo] | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -94,6 +162,7 @@ class ELFAnalyzeSettings:
     filter_soname: exclude sonames that don't match 'lib*.so*'
     require_interp: add dependency on ELF interpreter
     unique: remove duplicates
+    include_symbols: extract individual dynamic symbols
 
     Flag for collections (analyze tree, tarfile, zipfile)
 
@@ -105,6 +174,7 @@ class ELFAnalyzeSettings:
     filter_soname: bool = False
     require_interp: bool = False
     unique: bool = True
+    include_symbols: bool = False
     ignore_suffix: set[str] | frozenset[str] = frozenset(
         {".py", ".md", ".rst", ".sh", ".txt"}
     )
@@ -170,9 +240,12 @@ class _ELFDeps:
             requires=[],
             provides=[],
             is_exec=is_exec,
+            exported_symbols=[] if settings.include_symbols else None,
+            imported_symbols=[] if settings.include_symbols else None,
         )
         self.settings: ELFAnalyzeSettings = settings
         self._seen: set[tuple[bool, SOInfo]] = set()
+        self._version_map: dict[int, str] = {}
 
     def process(self) -> ELFInfo:
         """Process ELF file
@@ -186,6 +259,8 @@ class _ELFDeps:
             self.info.is_dso = ehdr["e_type"] == "ET_DYN"
             self.info.interp = self.process_prog_headers()
             self.process_sections()
+            if self.settings.include_symbols:
+                self.process_symbols()
 
         # For DSOs which use the .gnu_hash section and don't have a .hash
         # section, we need to ensure that we have a new enough glibc.
@@ -318,8 +393,10 @@ class _ELFDeps:
                 # aux entry of verdef with VER_FLG_BASE is the soname
                 if verdef["vd_flags"] & VER_FLAGS.VER_FLG_BASE:
                     soname = aux.name
-                elif soname is not None and not self.settings.soname_only:
-                    self.add_provides(soname, version=aux.name)
+                else:
+                    self._version_map.setdefault(verdef["vd_ndx"], aux.name)
+                    if soname is not None and not self.settings.soname_only:
+                        self.add_provides(soname, version=aux.name)
 
     def process_verneed(self, sec: GNUVerNeedSection) -> None:
         """Process GNU version need section
@@ -329,13 +406,10 @@ class _ELFDeps:
         for verneed, vernaux in sec.iter_versions():
             soname: str = verneed.name
             for aux in vernaux:
-                if (
-                    aux.name
-                    and self.gen_requires
-                    and soname
-                    and not self.settings.soname_only
-                ):
-                    self.add_requires(soname, version=aux.name)
+                if aux.name:
+                    self._version_map[aux["vna_other"]] = aux.name
+                    if self.gen_requires and soname and not self.settings.soname_only:
+                        self.add_requires(soname, version=aux.name)
 
     def process_dynamic(self, sec: DynamicSection) -> None:
         """Process dynamic tags section
@@ -375,3 +449,50 @@ class _ELFDeps:
                 return interp
         else:
             return None
+
+    def process_symbols(self) -> None:
+        """Extract individual dynamic symbols from .dynsym"""
+        dynsym_sec = typing.cast(
+            SymbolTableSection | None,
+            self.elffile.get_section_by_name(".dynsym"),
+        )
+        if dynsym_sec is None:
+            return
+        versym_sec = typing.cast(
+            GNUVerSymSection | None,
+            self.elffile.get_section_by_name(".gnu.version"),
+        )
+        assert self.info.exported_symbols is not None
+        assert self.info.imported_symbols is not None
+        version_map = self._version_map
+        for i, sym in enumerate(dynsym_sec.iter_symbols()):
+            name: str = sym.name
+            if not name:
+                continue
+            # skip non-default visibility (internal, hidden, protected)
+            if sym["st_other"]["visibility"] != "STV_DEFAULT":
+                continue
+            binding = _SYMBOL_BINDING_MAP.get(sym["st_info"]["bind"])
+            if binding is None:
+                continue
+            sym_type = _SYMBOL_TYPE_MAP.get(sym["st_info"]["type"])
+            if sym_type is None:
+                continue
+            version: str | None = None
+            if versym_sec is not None:
+                try:
+                    ndx = versym_sec.get_symbol(i)["ndx"]
+                    if isinstance(ndx, int):
+                        version = version_map.get(ndx & 0x7FFF)
+                except (IndexError, KeyError):
+                    pass
+            sym_info = SymbolInfo(
+                name=name,
+                version=version,
+                binding=binding,
+                type=sym_type,
+            )
+            if sym["st_shndx"] == "SHN_UNDEF":
+                self.info.imported_symbols.append(sym_info)
+            else:
+                self.info.exported_symbols.append(sym_info)
