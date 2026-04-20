@@ -16,9 +16,10 @@ jobs:
     strategy:
       matrix:
         python:
-          - "3.10"
           - "3.11"
           - "3.12"
+          - "3.13"
+          - "3.14"
         platform:
           - "ubuntu-latest"
 
@@ -49,6 +50,7 @@ jobs:
         with:
           name: coverage-${{ matrix.python }}
           path: .coverage.*
+          include-hidden-files: true
           if-no-files-found: ignore
 
   ruff:
@@ -57,7 +59,7 @@ jobs:
     strategy:
       matrix:
         python:
-          - "3.12"
+          - "3.14"
         platform:
           - "ubuntu-latest"
 
@@ -96,7 +98,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: 3.12
+          python-version: "3.14"
           cache: pip
           cache-dependency-path: |
             **/pyproject.toml
