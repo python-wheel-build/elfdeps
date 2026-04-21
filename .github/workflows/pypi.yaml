@@ -16,24 +16,31 @@ on:
         types:
             - published
 
-permissions:
-    contents: read
+permissions: {}
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: true
 
 jobs:
     build-package:
         name: Build and check packages
         runs-on: ubuntu-latest
+        permissions:
+            contents: read
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+              with:
+                  persist-credentials: false
 
-            - uses: hynek/build-and-inspect-python-package@v2
+            - uses: hynek/build-and-inspect-python-package@fe0a0fb1925ca263d076ca4f2c13e93a6e92a33e  # v2.17.0
 
     # push to Test PyPI on
     # - a new GitHub release is published
     # - a PR is merged into main branch
     publish-test-pypi:
         name: Publish packages to test.pypi.org
-        # environment: publish-test-pypi
+        environment: pypi
         if: |
             github.repository_owner == 'python-wheel-build' && (
                 github.event.action == 'published' ||
@@ -48,13 +55,13 @@ jobs:
 
         steps:
             - name: Fetch build artifacts
-              uses: actions/download-artifact@v4
+              uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
               with:
                   name: Packages
                   path: dist
 
             - name: Upload to Test PyPI
-              uses: pypa/gh-action-pypi-publish@release/v1
+              uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b  # v1.14.0
               with:
                   repository-url: https://test.pypi.org/legacy/
 
@@ -62,7 +69,7 @@ jobs:
     # - a new GitHub release is published
     publish-pypi:
         name: Publish release to pypi.org
-        # environment: publish-pypi
+        environment: pypi
         if: |
             github.repository_owner == 'python-wheel-build' && github.event.action == 'published'
         permissions:
@@ -76,12 +83,12 @@ jobs:
 
         steps:
             - name: Fetch build artifacts
-              uses: actions/download-artifact@v4
+              uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
               with:
                   name: Packages
                   path: dist
 
-            - uses: sigstore/gh-action-sigstore-python@v2.1.1
+            - uses: sigstore/gh-action-sigstore-python@61f6a500bbfdd9a2a339cf033e5421951fbc1cd2  # v2.1.1
               with:
                   inputs: >-
                       ./dist/*.tar.gz
@@ -99,4 +106,4 @@ jobs:
               run: rm ./dist/*.sigstore
 
             - name: Upload to PyPI
-              uses: pypa/gh-action-pypi-publish@release/v1
+              uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b  # v1.14.0
