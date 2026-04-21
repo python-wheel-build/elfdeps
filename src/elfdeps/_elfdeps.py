@@ -31,14 +31,14 @@ from ._fileinfo import (
 )
 
 
-class SymbolBinding(str, enum.Enum):
+class SymbolBinding(enum.StrEnum):
     """ELF dynamic symbol binding (STB_*)"""
 
     GLOBAL = "global"  # Global symbol
     WEAK = "weak"  # Weak symbol
 
 
-class SymbolType(str, enum.Enum):
+class SymbolType(enum.StrEnum):
     """ELF dynamic symbol type (STT_*)"""
 
     NOTYPE = "notype"  # Symbol type is unspecified
