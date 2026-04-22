@@ -22,7 +22,7 @@ pull_request_rules:
 
     actions:
       merge:
-        method: merge
+        method: rebase
 
   - name: Ping author on conflicts
     conditions:
