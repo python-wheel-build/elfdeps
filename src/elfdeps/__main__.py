@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import argparse
+import dataclasses
 import logging
 import pathlib
-import pprint
 import stat
 import tarfile
 import zipfile
@@ -67,6 +67,38 @@ parser.add_argument(
     dest="unique",
     help="Remove duplicate entries",
 )
+parser.add_argument(
+    "--symbols",
+    action="store_true",
+    dest="symbols",
+    help="Include exported and imported dynamic symbols",
+)
+
+
+def _format_elfinfo(info: _elfdeps.ELFInfo) -> str:
+    """Format ELFInfo as human-readable YAML-like output."""
+    lines: list[str] = []
+    for field in dataclasses.fields(info):
+        if field.name == "marker":
+            continue
+        value = getattr(info, field.name)
+        if isinstance(value, bool):
+            lines.append(f"{field.name}: {str(value).lower()}")
+        elif isinstance(value, list):
+            if not value:
+                lines.append(f"{field.name}: []")
+            else:
+                lines.append(f"{field.name}:")
+                _sort = field.name in ("exported_symbols", "imported_symbols")
+                items = sorted(value) if _sort else value
+                for item in items:
+                    lines.append(f"  - {item}")
+        elif value is None:
+            # skip fields that are None when not requested (e.g. symbols)
+            continue
+        else:
+            lines.append(f"{field.name}: {value}")
+    return "\n".join(lines)
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -77,6 +109,7 @@ def main(argv: list[str] | None = None) -> None:
         filter_soname=args.filter_soname,
         require_interp=args.require_interp,
         unique=args.unique,
+        include_symbols=args.symbols,
     )
     logging.basicConfig(level=logging.DEBUG if args.debug else logging.INFO)
     filename: pathlib.Path = args.filename
@@ -105,8 +138,10 @@ def main(argv: list[str] | None = None) -> None:
         for r in sorted(requires):
             print(r)
     else:
-        for info in sorted(infos):
-            pprint.pprint(info)
+        for i, info in enumerate(sorted(infos)):
+            if i > 0:
+                print("---")
+            print(_format_elfinfo(info))
 
 
 if __name__ == "__main__":
