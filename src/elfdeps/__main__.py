@@ -8,6 +8,11 @@ import stat
 import tarfile
 import zipfile
 
+try:
+    import pycxxfilt
+except ImportError:
+    pycxxfilt = None  # type: ignore[assignment]
+
 from . import _archives, _elfdeps
 
 ZIPEXT = (".zip", ".whl")
@@ -73,9 +78,38 @@ parser.add_argument(
     dest="symbols",
     help="Include exported and imported dynamic symbols",
 )
+parser.add_argument(
+    "--demangle",
+    action="store_true",
+    dest="demangle",
+    help="Demangle C++ symbol names (requires --symbols and pycxxfilt)",
+)
 
 
-def _format_elfinfo(info: _elfdeps.ELFInfo) -> str:
+def _format_symbol(
+    sym: _elfdeps.SymbolInfo,
+    demangle: bool = False,
+) -> str:
+    """Format a SymbolInfo, optionally demangling the name."""
+    name = sym.name
+    if demangle:
+        try:
+            demangled = pycxxfilt.demangle(name)
+        except ValueError:
+            # LLVM demangler may not be able to demangle all symbols. Show
+            # the original, umangled name.
+            demangled = None
+        if demangled is not None:
+            name = demangled
+    if sym.version:
+        return f"{name}@{sym.version}"
+    return name
+
+
+def _format_elfinfo(
+    info: _elfdeps.ELFInfo,
+    demangle: bool = False,
+) -> str:
     """Format ELFInfo as human-readable YAML-like output."""
     lines: list[str] = []
     for field in dataclasses.fields(info):
@@ -89,10 +123,16 @@ def _format_elfinfo(info: _elfdeps.ELFInfo) -> str:
                 lines.append(f"{field.name}: []")
             else:
                 lines.append(f"{field.name}:")
-                _sort = field.name in ("exported_symbols", "imported_symbols")
-                items = sorted(value) if _sort else value
+                _is_syms = field.name in (
+                    "exported_symbols",
+                    "imported_symbols",
+                )
+                items = sorted(value) if _is_syms else value
                 for item in items:
-                    lines.append(f"  - {item}")
+                    if _is_syms:
+                        lines.append(f"  - {_format_symbol(item, demangle)}")
+                    else:
+                        lines.append(f"  - {item}")
         elif value is None:
             # skip fields that are None when not requested (e.g. symbols)
             continue
@@ -103,6 +143,15 @@ def _format_elfinfo(info: _elfdeps.ELFInfo) -> str:
 
 def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
+    if args.demangle:
+        if not args.symbols:
+            parser.error("--demangle requires --symbols")
+        if pycxxfilt is None:
+            parser.error(
+                "--demangle requires the 'pycxxfilt' package "
+                "(install with: pip install elfdeps[demangle])"
+            )
+
     settings = _elfdeps.ELFAnalyzeSettings(
         soname_only=args.soname_only,
         fake_soname=args.fake_soname,
@@ -141,7 +190,7 @@ def main(argv: list[str] | None = None) -> None:
         for i, info in enumerate(sorted(infos)):
             if i > 0:
                 print("---")
-            print(_format_elfinfo(info))
+            print(_format_elfinfo(info, demangle=args.demangle))
 
 
 if __name__ == "__main__":

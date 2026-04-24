@@ -35,6 +35,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+demangle = [
+    "pycxxfilt",
+]
 test = [
     "pytest",
     "coverage[toml]",
@@ -113,4 +116,8 @@ disallow_untyped_defs = true
 
 [[tool.mypy.overrides]]
 module = ["elftools.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["pycxxfilt"]
 ignore_missing_imports = true

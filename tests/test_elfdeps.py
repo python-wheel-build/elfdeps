@@ -3,11 +3,13 @@ import pathlib
 import sys
 import sysconfig
 import tarfile
+import unittest.mock
 import zipfile
 
 import pytest
 
 import elfdeps
+from elfdeps import __main__ as cli
 
 SYMBOLS_SETTINGS = elfdeps.ELFAnalyzeSettings(include_symbols=True)
 
@@ -240,3 +242,73 @@ def test_symbols_libpython() -> None:
         sym = exported[name]
         assert sym.binding == elfdeps.SymbolBinding.GLOBAL
         assert sym.type == elfdeps.SymbolType.OBJECT
+
+
+class TestCLISymbols:
+    """Test --symbols and --demangle CLI options."""
+
+    def test_symbols_in_output(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """--symbols includes exported/imported symbols in output."""
+        cli.main([str(sys.executable), "--symbols"])
+        out = capsys.readouterr().out
+        assert "exported_symbols:" in out
+        assert "imported_symbols:" in out
+
+    def test_no_symbols_in_output(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """Without --symbols, symbol fields are omitted."""
+        cli.main([str(sys.executable)])
+        out = capsys.readouterr().out
+        assert "exported_symbols" not in out
+        assert "imported_symbols" not in out
+
+    def test_demangle_requires_symbols(self) -> None:
+        """--demangle without --symbols is an error."""
+        with pytest.raises(SystemExit, match="2"):
+            cli.main([str(sys.executable), "--demangle"])
+
+    def test_demangle_requires_pycxxfilt(self) -> None:
+        """--demangle errors when pycxxfilt is not installed."""
+        with unittest.mock.patch.object(cli, "pycxxfilt", None):
+            with pytest.raises(SystemExit, match="2"):
+                cli.main([str(sys.executable), "--symbols", "--demangle"])
+
+    def test_format_symbol_no_demangle(self) -> None:
+        """_format_symbol without demangle returns name[@version]."""
+        sym = elfdeps.SymbolInfo(
+            "_Z3fooi", "V1", elfdeps.SymbolBinding.GLOBAL, elfdeps.SymbolType.FUNC
+        )
+        assert cli._format_symbol(sym) == "_Z3fooi@V1"
+
+        sym_plain = elfdeps.SymbolInfo(
+            "_Z3fooi", None, elfdeps.SymbolBinding.GLOBAL, elfdeps.SymbolType.FUNC
+        )
+        assert cli._format_symbol(sym_plain) == "_Z3fooi"
+
+    def test_format_symbol_demangle(self) -> None:
+        """_format_symbol with demangle demanges C++ names."""
+        pycxxfilt = pytest.importorskip("pycxxfilt")  # noqa: F841
+        sym = elfdeps.SymbolInfo(
+            "_Z3fooi", "V1", elfdeps.SymbolBinding.GLOBAL, elfdeps.SymbolType.FUNC
+        )
+        result = cli._format_symbol(sym, demangle=True)
+        assert result == "foo(int)@V1"
+
+    def test_format_symbol_demangle_not_mangled(self) -> None:
+        """_format_symbol with demangle keeps non-mangled names."""
+        pycxxfilt = pytest.importorskip("pycxxfilt")  # noqa: F841
+        sym = elfdeps.SymbolInfo(
+            "printf",
+            "GLIBC_2.34",
+            elfdeps.SymbolBinding.GLOBAL,
+            elfdeps.SymbolType.FUNC,
+        )
+        result = cli._format_symbol(sym, demangle=True)
+        assert result == "printf@GLIBC_2.34"
+
+    def test_cli_demangle_output(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """--symbols --demangle produces demangled output."""
+        pycxxfilt = pytest.importorskip("pycxxfilt")  # noqa: F841
+        cli.main([str(sys.executable), "--symbols", "--demangle"])
+        out = capsys.readouterr().out
+        assert "exported_symbols:" in out
+        assert "imported_symbols:" in out

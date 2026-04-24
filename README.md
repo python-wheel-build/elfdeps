@@ -57,6 +57,18 @@ imported_symbols:
   - ...
 ```
 
+With the optional `demangle` extra (`pip install elfdeps[demangle]`),
+`--demangle` demanges C++ symbol names:
+
+```shell-session
+$ elfdeps --symbols --demangle torchaudio-2.11.0-cp312-cp312-manylinux_2_28_x86_64.whl
+...
+exported_symbols:
+  - torchaudio::cuda_version()
+  - torchaudio::is_align_available()
+  - ...
+```
+
 ## RPM
 
 In Fedora-based distributions, RPM packages provide and require virtual packages with ELF sonames and versions. The package manager can install virtual provides.
