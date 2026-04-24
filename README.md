@@ -29,6 +29,34 @@ libc.so.6(GLIBC_PRIVATE)(64bit)
 libc.so.6()(64bit)
 ```
 
+`elfdeps` can also inspect archives like Python wheels and extract symbols:
+
+```shell-session
+$ elfdeps --symbols torchaudio-2.11.0-cp312-cp312-manylinux_2_28_x86_64.whl
+filename: torchaudio/lib/_torchaudio.abi3.so
+requires:
+  - libgcc_s.so.1(GCC_3.0)(64bit)
+  - libc.so.6(GLIBC_2.2.5)(64bit)
+  - ...
+provides: []
+machine: EM_X86_64
+is_dso: true
+is_exec: true
+got_debug: false
+got_hash: false
+got_gnuhash: true
+soname: _torchaudio.abi3.so
+exported_symbols:
+  - _ZN10torchaudio12cuda_versionEv
+  - _ZN10torchaudio18is_align_availableEv
+  - ...
+imported_symbols:
+  - ...
+  - aoti_torch_abi_version
+  - aoti_torch_delete_library_object
+  - ...
+```
+
 ## RPM
 
 In Fedora-based distributions, RPM packages provide and require virtual packages with ELF sonames and versions. The package manager can install virtual provides.
